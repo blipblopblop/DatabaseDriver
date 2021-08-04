@@ -1,16 +1,3 @@
-#!/usr/bin/python3
-#
-# easydb.py
-#
-# Definition for the Database class in EasyDB client
-#
-
-import socket
-import struct
-import re
-from . import exception as ex
-from . import packet
-
 class Database:
     def __repr__(self):
         return "<EasyDB Database object>"
