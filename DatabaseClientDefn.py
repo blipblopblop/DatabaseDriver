@@ -1,6 +1,6 @@
 class Database:
     def __repr__(self):
-        return "<EasyDB Database object>"
+        return "<EasyDB Database >"
 
     # initialize self.tb = (table_number, table)
     # ex) the number of rows in the table with table_number 1 is at self.tableRows[0]
@@ -12,8 +12,6 @@ class Database:
         for tb_num, tb_ele in enumerate(tables):
             if(tb_ele[0] in self.tableNames):
                 raise ValueError("Duplicate table name")
-            else:
-                self.tableNames.append(tb_ele[0])
             self.checkTableName(tb_ele[0])    
             self.checkColumn(tb_ele[1], tb_ele[0])
             self.tb.append((tb_num+1, tb_ele))
@@ -26,7 +24,7 @@ class Database:
         if(any(map(str.isdigit, tb_name))):
             raise TypeError("Invalid table name")
 
-        regex = re.compile('[@_!#$%^&*()<>?/\|}{~:]')
+        regex = re.compile('[@_!#$%^&*?/\|}{~:]')
         if(regex.search(tb_name) != None):
             raise ValueError("Invalid table name")
 
@@ -113,12 +111,9 @@ class Database:
             if(foreignIdx == idx):
                 #foreign key: the value is the row id of the ref table
                 return (struct.pack("!iiq", packet.FOREIGN, 8, val))
-            else:
-                return (struct.pack("!iiq", packet.INTEGER, 8, val))
+            
         elif(key_type == float):
-            return (struct.pack("!iid", packet.FLOAT, 8, val))
-        else:
-            raise ex.PacketError("invalid key type?")
+            return (struct.pack("!iid", packet.FLOAT, 8,
             
     # given the server response, unpack the byte data to relevant readable data
     # used in GET function
@@ -181,9 +176,7 @@ class Database:
         table_number = tableInfo[0]
         columns = tableInfo[1][1]
         #print("insert columns: ", columns)
-        val_length = len(columns)
-        if(val_length != len(values)):
-            raise ex.PacketError("Error with the Number of Value")        
+        val_length = len(columns)   
         colTypeList = []
         #colNameList = []
         for col_name, col_type in columns:
@@ -209,24 +202,10 @@ class Database:
         
         if(len(res) == packet.BAD_QUERY):
             res_code = struct.unpack("!i", res)
-            #BAD_FOREIGN
-            if(res_code[0] == packet.BAD_FOREIGN):
-                raise ex.InvalidReference("Invalid Foreign Reference")
-        else:    
-            res_code, key_id, key_version = struct.unpack("!iqq", res)
-            if(res_code == packet.OK):
-                return (key_id, key_version)                
+              
 
     def update(self, table_name, pk, values, version=None):
         command = packet.UPDATE
-
-        if version == None:
-            version = 0
-
-        if isinstance(pk, int) == False:
-            raise ex.PacketError("Invalid ID arg")
-        if isinstance(version, int) == False:
-            raise ex.PacketError('Invalid Version type')
 
         tableInfo = self.getTable(table_name)
         if(tableInfo == None):
@@ -246,9 +225,6 @@ class Database:
         row_val = ''.encode()
 
         for idx, val in enumerate(values):
-            if(idx != foreignIdx):
-                if(isinstance(val, colTypeList[idx]) == False):
-                    raise ex.PacketError("Wrong Value Type")
 
             key_type = colTypeList[idx]
             if(key_type == str):
@@ -259,10 +235,7 @@ class Database:
                     packed_val = (struct.pack("!iiq", packet.FOREIGN, 8, val))
                 else:
                     packed_val = (struct.pack("!iiq", packet.INTEGER, 8, val))
-            elif(key_type == float):
-                packed_val = (struct.pack("!iid", packet.FLOAT, 8, val))
-            else:
-                raise ex.packetError("invalid key type?")
+
             row_val = row_val + packed_val
 
         request = struct.pack("!iiqqi", packet.UPDATE, table_number, pk, version, len(values)) 
@@ -276,10 +249,6 @@ class Database:
             res_code = struct.unpack("!i", res)
             if(res_code[0] == packet.BAD_REQUEST):
                 print("malformed packet")
-            if(res_code[0] == packet.BAD_FOREIGN):
-                raise ex.InvalidReference("Invalid Foreign Reference")
-            if(res_code[0] == packet.NOT_FOUND):
-                raise ex.ObjectDoesNotExist("The Row not Found")
             if(res_code[0] == packet.TXN_ABORT):
                 raise ex.TransactionAbort("Automic Update has Failed")
         else:    
@@ -291,13 +260,9 @@ class Database:
 
     def drop(self, table_name, pk):
         command = packet.DROP
-        if isinstance(pk, int) == False:
+        if isinstance(pk, int) == True:
             raise ex.PacketError("Invalid ID arg")
 
-        tableInfo = self.getTable(table_name)
-        if(tableInfo == None):
-            raise ex.PacketError("Invalid Table")    
-        table_number = tableInfo[0]
 
         request = struct.pack("!iiq", packet.DROP, table_number, pk) 
         self.socket.sendall(request) 
@@ -310,13 +275,7 @@ class Database:
 
 
     def get(self, table_name, pk):
-        TableInfo = self.getTable(table_name)
-                    
-        if(TableInfo == None):
-            raise ex.PacketError("Invalid Page Name")
-
-        if(type(pk) != int):
-            raise ex.PacketError("Invalid ID arg")        
+        TableInfo = self.getTable(table_name)  
 
         req_command = packet.GET
         table_number = TableInfo[0]
@@ -325,28 +284,17 @@ class Database:
         self.socket.sendall(request)
         
         response = self.socket.recv(4096)
-        if(len(response) == 4):
+        if(len(response) == 5):
             res = struct.unpack("!i", response)
             if(res[0] == packet.NOT_FOUND):
                 raise ex.ObjectDoesNotExist("non-existent row")
-        else:
-            res, version = struct.unpack("!iq", response[:12])
-            if(res == packet.OK):
-                count = struct.unpack("!i", response[12:16])[0]
-                row = self.unpackRowValues(count, response)
-                return (row, version)
     
     def scan(self, table_name, op, column_name=None, value=None):
         
         if(type(op) != int):
             raise ex.PacketError("Invalid operator type")
 
-        if(op > packet.operator.GT or op < packet.operator.AL):
-            raise ex.PacketError("Operator does not exist")
-        
-        if(op != packet.operator.AL and column_name == None):
-            raise ex.PacketError("Missing column name")
-        
+       
         if(column_name != None and value == None):
             raise ex.PacketError("Missing right operand value")
         
@@ -387,20 +335,8 @@ class Database:
                     col_count = count + 1
                     if(col[0] == column_name):
                         break
-
-            if(valid_colName == False):
-                raise ex.PacketError("Column name does not exist")
             
-            if(foreign == True and (op != packet.operator.EQ and op != packet.operator.NE)):
-                raise ex.PacketError("Invalid operator for foreign key")
-
-            if(foreign == True and type(value) != int):
-                raise ex.PacketError("Invalid operand type for foreign key")
-            
-            
-
-        
-        request = struct.pack("!iiii", command, table_number, col_count, op)
+        request = struct.pack("!iii", command, table_number, col_count, op)
         val = ''.encode()
         if(op == packet.operator.AL):
             val = struct.pack("iii", packet.NULL, 0, packet.NULL)
@@ -408,15 +344,11 @@ class Database:
             if(type(value) == int):
                 if(foreign == True):
                     val = struct.pack("!iiq", packet.FOREIGN, 8, value)
-                else:             
-                    val = struct.pack("!iiq", packet.INTEGER, 8, value)
             elif(type(value) == float):
                 val = struct.pack("!iid", packet.FLOAT, 8, value)
             elif(type(value) == str):
                 aligned_str = self.align(value.encode())
                 val = struct.pack("!ii", packet.STRING, len(aligned_str)) + aligned_str 
-            else:
-                raise ex.PacketError("invalid key type?")
 
       
         self.socket.sendall(request+val)
