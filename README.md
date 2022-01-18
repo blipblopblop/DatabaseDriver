@@ -1,2 +1,2 @@
 # DatabaseDriver
-Software on the client side that is providing an interface to database servers where this driver is in charge of sending and receiving packets to and from server,  through TCP/IP protocols. 
+Developed the interface of a database driver that is in charge of sending and receiving packets to and from server through TCP/IP protocols. 
